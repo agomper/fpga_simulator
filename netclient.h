@@ -11,7 +11,7 @@ extern "C" {
 #include <stdint.h>
 
 typedef struct {
-  int index;                //Identificador del paquete
+  uint32_t index;                //Identificador del paquete
   uint16_t channels;             //Num channels
   uint16_t frames;               //Num frames
   uint8_t data[1024];            //Payload

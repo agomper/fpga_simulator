@@ -1,12 +1,9 @@
 #include <unistd.h> /* POSIX */
 #include <pthread.h>
 
-#include "receiver.h"
 #include "sender.h"
 
 Sender senderObj;
-Receiver recvObj;
-
 
 
 void jack_client_shutdown(void *arg) {
@@ -64,61 +61,6 @@ int jack_callback_sender (jack_nframes_t nframes, void *arg){
 }
 
 
-/************************************************************ JACK CLIENT RECV*/
-// Write data from ring buffer to JACK output ports.
-int jack_callback_receiver (jack_nframes_t nframes, void *arg){
-    //Nframes = Frames/Period = = Buffer de JACK = 1024
-    if(nframes >= recvObj.getJackBufferSize()) {
-        cout<< "Fatal error. Not enough space!. "
-               "JackRF64 buffer: "<<recvObj.getJackBufferSize()<<
-               " and Frames: "<<nframes<<"\n";
-        return -1;
-    }
-
-    //Conversion del RingBuffer a Jack Ports
-    //Le dice los punteros out que apunten al mismo sitio que los Jack ports.
-    int i, j;
-    float *out[recvObj.getChannels()];
-    float localFrame [recvObj.getChannels()*nframes];
-
-    for(i = 0; i < recvObj.getChannels(); i++) {
-        out[i] = (float *) jack_port_get_buffer(recvObj.getJackPort(i), nframes);
-    }
-
-    //Comprueba si tiene informacion para el Jack
-    int nsamples = nframes * recvObj.getChannels();
-    int nbytes = nsamples * sizeof(float);
-    int bytes_available = (int) jack_ringbuffer_read_space(recvObj.getRingBuffer());
-    //Si no tiene suficiente informacion, reseta los punteros out.
-    if(nbytes > bytes_available) {
-        printf("jack-udp recv: buffer underflow (%d > %d)\n",
-                nbytes, bytes_available);
-        for(i = 0; i < nframes; i++) {
-            for(j = 0; j < recvObj.getChannels(); j++) {
-                out[j][i] = (float) 0.0;
-            }
-        }
-
-    }
-    //Pero si tiene suficiente informacion se la da a Jack ports, mediante
-    //los punteros out.
-    else {
-        recvObj.jack_ringbuffer_read_exactly(nbytes);
-        for(i = 0; i < nframes; i++) {
-            for(j = 0; j < recvObj.getChannels(); j++) {
-                out[j][i] = (float)
-                        recvObj.getJackBuffer()[(i * recvObj.getChannels()) + j];
-                localFrame[(i * recvObj.getChannels()) + j] = out [j][i];
-            }
-
-        }
-        recvObj.getSndfd().write(localFrame, recvObj.getChannels()*nframes);
-    }
-
-    return 0;
-}
-
-
 
 /************************ THREADS (NETWORK) ******************************/
 
@@ -129,7 +71,7 @@ void *sender_thread(void *arg) {
     Sender *sender = (Sender *) arg;
     networkPacket p;                           //Network package
     p.index = 0;                          //Inicializa el indice a 0
-    int localIndex = 0;
+    uint32_t localIndex = 0;
 
     while(1) {
         sender->jack_ringbuffer_wait_for_read(sender->getPayloadBytes(),
@@ -149,61 +91,6 @@ void *sender_thread(void *arg) {
 }
 
 
-//RECEIVER
-// Read data from UDP port and write to ring buffer.
-void *receiver_thread(void *arg) {
-    Receiver *receiver = (Receiver *) arg;
-    networkPacket p;                       //Paquete P = Network
-    int next_packet = -1;
-
-    //Fichero
-    FILE *filed;
-    if ((filed = fopen ("Test", "w")) == NULL) {
-        printf("Error opening the file. \n");
-        exit(1);
-    }
-    else {
-        printf("File created. \n");
-    }
-
-    while(1) {
-        //Llama al metodo para recibir 1 paquete de P.
-        receiver->packet_recv(&p);
-
-        //Comprobaciones del indice y numero de canales
-        if(p.index != next_packet/* || next_packet != -1*/) {
-            printf("jack-udp recv: out of order packet "
-                    "arrival (Esperado, Recibido) (%d, %d)\n",
-                    next_packet, p.index);
-            //exit(1);
-        }
-        if(p.channels != receiver->getChannels()) {
-            printf("jack-udp recv: channel mismatch packet "
-                    "arrival (Esperado, Recibido) (%d != %d)\n",
-                    p.channels, receiver->getChannels());
-            exit(1);
-        }
-
-        //Comprueba el espacio que tiene para escribir en el RingBuffer
-        int bytes_available = (int) jack_ringbuffer_write_space(receiver->getRingBuffer());
-        //Si no hay espacio, avisa.
-        if(receiver->getPayloadBytes() > bytes_available) {
-            printf("jack-udp recv: buffer overflow (%d > %d)\n",
-                    (int) receiver->getPayloadBytes(), bytes_available);
-        } else {
-            receiver->jack_ringbuffer_write_exactly((char *) p.data,
-                                          (size_t) receiver->getPayloadBytes());
-            //Fichero
-            fprintf(filed, "%d \n", p.index);
-        }
-
-        //Actualiza el indice del paquete que debe llegar.
-        next_packet = p.index + 1;
-    }
-    return NULL;
-}
-
-
 
 /*********************************** MAIN *************************************/
 int main () {
@@ -211,7 +98,8 @@ int main () {
     int intAux;
     pthread_t netcomThread;         //Thread to manage UDP communication
 
-    cout<<"Please select mode: 1. Sender - 2. Receiver \n";
+    cout<<"FPGA Simulator: 1. Start - 2. Exit \n";
+    cout<<"Mode: ";
     cin>>modeSelected;
 
     if (modeSelected==1) { //Sender
@@ -240,45 +128,14 @@ int main () {
                        sender_thread, &senderObj);
         if (intAux != 0)
             cout<<"Sender thread error. \n";
-    }
-    else { //Receiver
-        cout<<"Receiver mode selected. \n";
-        recvObj.create_socket_connection();
-        recvObj.init_isAddress(2);
-        recvObj.bind_isAddress();
-        //recvObj.receiver_socket_test();
 
-        recvObj.create_file("WAVFile", 2, 44100, SF_FORMAT_WAV | SF_FORMAT_PCM_16);
+        //The pthread_join() function suspends execution of
+        //the calling thread until the target thread terminates
+        pthread_join(netcomThread, NULL);
 
-        recvObj.open_jack_client("receiver_client");
-        //Sensibilidad de los mensajes de error a mostrar de Jack. Minimo.
-        jack_set_error_function(jack_client_error_handler);
-        //Register a function (and argument) to be called if and when the
-        //JACK server shuts down the client thread
-        jack_on_shutdown(recvObj.getClientfd(),
-                         jack_client_shutdown, 0);
-        //Tell the Jack server to call @a process_callback whenever there is
-        //work be done, passing @a arg as the second argument.
-        jack_set_process_callback(recvObj.getClientfd(), jack_callback_receiver, NULL);
-        recvObj.jack_port_make_standard(2);
-        recvObj.jack_client_activate(recvObj.getClientfd());
-
-        cout<<"Creating receiver thread. \n";
-        intAux = pthread_create(&netcomThread,NULL,
-                       receiver_thread, &recvObj);
-        if (intAux != 0)
-            cout<<"Receiver thread error. \n";
-    }
-
-    //The pthread_join() function suspends execution of
-    //the calling thread until the target thread terminates
-    pthread_join(netcomThread, NULL);
-
-    if (modeSelected==1)
         senderObj.finish();
-    else
-        recvObj.finish();
+        pthread_exit(NULL);
+    }
 
-    pthread_exit(NULL);
     return 0;
 }
