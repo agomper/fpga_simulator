@@ -12,7 +12,7 @@ int NetClient::getPayloadSamples() const
 }
 
 NetClient::NetClient() {
-    portNumber = 57150;
+    portNumber = 57160;
 }
 
 void NetClient::create_socket_connection() {

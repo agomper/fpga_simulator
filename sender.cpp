@@ -2,8 +2,8 @@
 
 
 Sender::Sender() {
-    strcpy(hostname, "127.0.0.1");
-    soundFileName = "Suspiros.wav";
+    strcpy(hostname, "10.0.0.2");
+    soundFileName = "RF64File";
 }
 
 void Sender::sender_socket_test() {

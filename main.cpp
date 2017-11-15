@@ -4,7 +4,7 @@
 #include "sender.h"
 
 Sender senderObj;
-
+int overflow_counter = 0; //Test
 
 void jack_client_shutdown(void *arg) {
   printf("Jack shutdown \n");
@@ -38,8 +38,8 @@ int jack_callback_sender (jack_nframes_t nframes, void *arg){
             //El j_buffer guarda los datos de cada frame para cada uno
             //de los canales. in[Canal][Frame]
             senderObj.getJackBuffer()[(i*senderObj.getChannels())+j]
-            //        = (float) in[j][i]; //JACK PORTS
-                      = fileBuffer[(i*senderObj.getChannels())+j];
+                    //= (float) in[j][i]; //JACK PORTS
+                      = fileBuffer[(i*senderObj.getChannels())+j]; //FILE
         }
     }
 
@@ -48,6 +48,8 @@ int jack_callback_sender (jack_nframes_t nframes, void *arg){
     int bytes_to_write = nframes * sizeof(float) * senderObj.getChannels();
     if(bytes_to_write > bytes_available) {
         printf ("jack-udp send: buffer overflow error (UDP thread late)\n");
+        overflow_counter++;
+        cout<<"Overflow Counter: "<<overflow_counter<<endl;
     } else {
         senderObj.jack_ringbuffer_write_exactly(bytes_to_write);
     }
@@ -79,7 +81,8 @@ void *sender_thread(void *arg) {
 
         localIndex++;
         p.index = localIndex;
-        printf("Indice nuevo paquete. (%d) %d\n", p.index, localIndex);
+        if (p.index % 1000 == 1)
+            printf("Indice nuevo paquete: %d \n", p.index);
         p.channels = sender->getChannels();
         p.frames = sender->getPayloadSamples() / sender->getChannels();
 
