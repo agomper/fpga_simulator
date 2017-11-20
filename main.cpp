@@ -38,8 +38,8 @@ int jack_callback_sender (jack_nframes_t nframes, void *arg){
             //El j_buffer guarda los datos de cada frame para cada uno
             //de los canales. in[Canal][Frame]
             senderObj.getJackBuffer()[(i*senderObj.getChannels())+j]
-                    //= (float) in[j][i]; //JACK PORTS
-                      = fileBuffer[(i*senderObj.getChannels())+j]; //FILE
+                    = (float) in[j][i]; //JACK PORTS
+                      //= fileBuffer[(i*senderObj.getChannels())+j]; //FILE
         }
     }
 
